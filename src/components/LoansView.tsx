@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
   Edit2,
+  RefreshCw,
 } from 'lucide-react';
 
 export const LoansView: React.FC = () => {
@@ -27,10 +28,21 @@ export const LoansView: React.FC = () => {
     updateLoan,
     deleteLoan,
     payLoan,
+    forceSyncNow,
   } = useFinance();
 
   const [activeTab, setActiveTab] = useState<'pending' | 'paid' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      await forceSyncNow();
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Modals state
   const [isNewLoanOpen, setIsNewLoanOpen] = useState(false);
@@ -274,14 +286,27 @@ export const LoansView: React.FC = () => {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleOpenNewLoan}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Novo Empréstimo</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-60"
+              title="Sincronizar empréstimos com o outro celular agora"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : 'text-slate-600'}`} />
+              <span className="hidden xs:inline">{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenNewLoan}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Novo Empréstimo</span>
+            </button>
+          </div>
         </div>
 
         {/* Financial Overview Cards */}
@@ -389,14 +414,26 @@ export const LoansView: React.FC = () => {
                 : 'Nenhum registro de empréstimo nesta visualização.'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleOpenNewLoan}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Cadastrar Empréstimo</span>
-          </button>
+          <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : 'text-slate-600'}`} />
+              <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar Outro Celular'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenNewLoan}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Cadastrar Empréstimo</span>
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">

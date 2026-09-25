@@ -419,6 +419,137 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // 5g. Bidirectional Full Reconcile (Merges data between any client device and server)
+  app.post('/api/sync/reconcile', (req, res) => {
+    const incoming = req.body || {};
+    let changed = false;
+
+    // 1. Reconcile Loans (merge by ID, never drop)
+    if (Array.isArray(incoming.loans) && incoming.loans.length > 0) {
+      const loanMap = new Map<string, any>();
+      loans.forEach(l => {
+        if (l && l.id) loanMap.set(l.id, l);
+      });
+
+      incoming.loans.forEach((incLoan: any) => {
+        if (!incLoan || !incLoan.id) return;
+        const existing = loanMap.get(incLoan.id);
+        if (!existing) {
+          loanMap.set(incLoan.id, incLoan);
+          changed = true;
+        } else {
+          const exTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+          const inTime = new Date(incLoan.updated_at || incLoan.created_at || 0).getTime();
+          if (inTime >= exTime) {
+            loanMap.set(incLoan.id, { ...existing, ...incLoan });
+            changed = true;
+          }
+        }
+      });
+      loans = Array.from(loanMap.values());
+      persistLoans();
+    }
+
+    // 2. Reconcile Transactions (merge by ID, never drop)
+    if (Array.isArray(incoming.transactions) && incoming.transactions.length > 0) {
+      const txMap = new Map<string, any>();
+      transactions.forEach(t => {
+        if (t && t.id) txMap.set(t.id, t);
+      });
+
+      incoming.transactions.forEach((incTx: any) => {
+        if (!incTx || !incTx.id) return;
+        const existing = txMap.get(incTx.id);
+        if (!existing) {
+          txMap.set(incTx.id, incTx);
+          changed = true;
+        } else {
+          const exTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+          const inTime = new Date(incTx.updated_at || incTx.created_at || 0).getTime();
+          if (inTime >= exTime) {
+            txMap.set(incTx.id, { ...existing, ...incTx });
+            changed = true;
+          }
+        }
+      });
+      transactions = Array.from(txMap.values());
+      persistData();
+    }
+
+    // 3. Reconcile Vault Goals (merge by ID and deposits)
+    if (Array.isArray(incoming.vaultGoals) && incoming.vaultGoals.length > 0) {
+      const vaultMap = new Map<string, any>();
+      vaultGoals.forEach(g => {
+        if (g && g.id) vaultMap.set(g.id, g);
+      });
+
+      incoming.vaultGoals.forEach((incGoal: any) => {
+        if (!incGoal || !incGoal.id) return;
+        const existing = vaultMap.get(incGoal.id);
+        if (!existing) {
+          vaultMap.set(incGoal.id, incGoal);
+          changed = true;
+        } else {
+          const exTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+          const inTime = new Date(incGoal.updated_at || incGoal.created_at || 0).getTime();
+          if (inTime >= exTime) {
+            vaultMap.set(incGoal.id, { ...existing, ...incGoal });
+            changed = true;
+          }
+        }
+      });
+      vaultGoals = Array.from(vaultMap.values());
+      persistVault();
+    }
+
+    // 4. Reconcile Chat Messages
+    if (Array.isArray(incoming.chatMessages) && incoming.chatMessages.length > 0) {
+      const chatMap = new Map<string, any>();
+      chatMessages.forEach(m => {
+        if (m && m.id) chatMap.set(m.id, m);
+      });
+
+      incoming.chatMessages.forEach((incMsg: any) => {
+        if (!incMsg || !incMsg.id) return;
+        if (!chatMap.has(incMsg.id)) {
+          chatMap.set(incMsg.id, incMsg);
+          changed = true;
+        }
+      });
+      chatMessages = Array.from(chatMap.values());
+      persistChat();
+    }
+
+    // 5. Reconcile Partners Config
+    if (incoming.partners && typeof incoming.partners === 'object') {
+      if (!partnersData || JSON.stringify(partnersData) !== JSON.stringify(incoming.partners)) {
+        partnersData = { ...(partnersData || {}), ...incoming.partners };
+        persistPartners();
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      broadcast('RECONCILE_UPDATE', {
+        loans,
+        transactions,
+        vaultGoals,
+        chatMessages,
+        partners: partnersData,
+      }, req.headers['x-client-id'] as string);
+    }
+
+    res.json({
+      success: true,
+      loans,
+      transactions,
+      vaultGoals,
+      chatMessages,
+      partners: partnersData,
+      serverTime: new Date().toISOString(),
+    });
+  });
+
   // 6. Real-time Server-Sent Events (SSE) stream for instant synchronization
   app.get('/api/events', (req, res) => {
     res.writeHead(200, {

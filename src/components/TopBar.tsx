@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useFinance } from '../context/FinanceContext';
-import { Database, Settings, Volume2, VolumeX, Banknote } from 'lucide-react';
+import { Database, Settings, Volume2, VolumeX, Banknote, RefreshCw } from 'lucide-react';
 
 interface TopBarProps {
   onOpenNewTransaction: () => void;
@@ -20,7 +20,19 @@ export const TopBar: React.FC<TopBarProps> = ({
     supabaseStatus,
     soundEnabled,
     setSoundEnabled,
+    forceSyncNow,
   } = useFinance();
+
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncClick = async () => {
+    setIsSyncing(true);
+    try {
+      await forceSyncNow();
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-3.5 pt-2.5 pb-2 shadow-xs">
@@ -69,8 +81,19 @@ export const TopBar: React.FC<TopBarProps> = ({
             </span>
           </div>
 
-          {/* Right: Sound toggle + Settings Gear right next to it */}
+          {/* Right: Sync + Sound toggle + Settings Gear right next to it */}
           <div className="flex items-center justify-end gap-1">
+            {/* Sync now button */}
+            <button
+              type="button"
+              onClick={handleSyncClick}
+              disabled={isSyncing}
+              className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              title="Sincronizar dados entre os celulares agora"
+            >
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-emerald-600' : ''}`} />
+            </button>
+
             {/* Sound toggle */}
             <button
               type="button"

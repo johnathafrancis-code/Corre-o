@@ -72,6 +72,7 @@ interface FinanceContextType {
   chatMessages: ChatMessage[];
   sendChatMessage: (text: string, sender: TransactionOwner) => Promise<boolean>;
   deleteChatMessage: (id: string) => Promise<boolean>;
+  forceSyncNow: () => Promise<void>;
 }
 
 const LOCAL_STORAGE_TX_KEY = 'financas_casal_transactions';
@@ -176,7 +177,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [loans, setLoans] = useState<Loan[]>(() => {
     try {
-      const stored = localStorage.getItem(LOCAL_STORAGE_LOANS_KEY);
+      const stored = localStorage.getItem(LOCAL_STORAGE_LOANS_KEY) || localStorage.getItem('financas_loans');
       if (stored) return JSON.parse(stored);
     } catch (e) {
       console.error(e);
@@ -193,21 +194,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [loans]);
 
-  // Load loans from backend API on mount
-  useEffect(() => {
-    fetch('/api/loans')
-      .then(r => r.json())
-      .then(data => {
-        if (Array.isArray(data.loans) && data.loans.length > 0) {
-          setLoans(data.loans);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
     try {
-      const stored = localStorage.getItem(LOCAL_STORAGE_CHAT_KEY);
+      const stored = localStorage.getItem(LOCAL_STORAGE_CHAT_KEY) || localStorage.getItem('financas_chat_messages');
       if (stored) return JSON.parse(stored);
     } catch (e) {
       console.error(e);
@@ -223,18 +212,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.error(e);
     }
   }, [chatMessages]);
-
-  // Load chat messages from backend API on mount
-  useEffect(() => {
-    fetch('/api/chat')
-      .then(r => r.json())
-      .then(data => {
-        if (Array.isArray(data.messages) && data.messages.length > 0) {
-          setChatMessages(data.messages);
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   const setSoundEnabled = (val: boolean) => {
     setSoundEnabledState(val);
@@ -349,8 +326,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [transactions]);
 
-  // Load from backend API initially and check shared Supabase configuration
-  const loadInitialData = useCallback(async () => {
+  // Bidirectional Full Reconciliation with Server
+  // Guarantees that any loans, transactions, vault goals, or chat launched on any device
+  // are pushed to the server, merged by ID, persisted to disk, and broadcast to all devices.
+  const reconcileWithServer = useCallback(async (isManualTrigger = false) => {
     try {
       // 1. Fetch server-stored Supabase config so partner connects automatically
       try {
@@ -364,47 +343,121 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       } catch (err) {}
 
-      // 2. Fetch local server data (transactions, loans, chat, vault, partners)
-      const [txRes, loansRes, chatRes, vaultRes, partnersRes] = await Promise.all([
-        fetch('/api/transactions').catch(() => null),
-        fetch('/api/loans').catch(() => null),
-        fetch('/api/chat').catch(() => null),
-        fetch('/api/vault').catch(() => null),
-        fetch('/api/partners').catch(() => null),
-      ]);
+      // 2. Read local stored items (safely check primary and fallback storage keys)
+      let localLoans: Loan[] = [];
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_LOANS_KEY) || localStorage.getItem('financas_loans');
+        if (raw) localLoans = JSON.parse(raw);
+      } catch (e) {}
 
-      if (txRes && txRes.ok) {
-        const json = await txRes.json();
-        if (Array.isArray(json.transactions)) {
-          setTransactions(json.transactions);
+      let localTx: Transaction[] = [];
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_TX_KEY) || localStorage.getItem('financas_transactions');
+        if (raw) localTx = JSON.parse(raw);
+      } catch (e) {}
+
+      let localVault: VaultGoal[] = [];
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_VAULT_KEY) || localStorage.getItem('financas_vault_goals');
+        if (raw) localVault = JSON.parse(raw);
+      } catch (e) {}
+
+      let localChat: ChatMessage[] = [];
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_CHAT_KEY) || localStorage.getItem('financas_chat_messages');
+        if (raw) localChat = JSON.parse(raw);
+      } catch (e) {}
+
+      let localPartners: PartnerConfig | null = null;
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_PARTNERS_KEY) || localStorage.getItem('financas_partners');
+        if (raw) localPartners = JSON.parse(raw);
+      } catch (e) {}
+
+      // 3. Send full reconcile payload to server
+      const res = await fetch('/api/sync/reconcile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-client-id': clientIdRef.current,
+        },
+        body: JSON.stringify({
+          loans: localLoans,
+          transactions: localTx,
+          vaultGoals: localVault,
+          chatMessages: localChat,
+          partners: localPartners,
+        }),
+      }).catch(() => null);
+
+      if (res && res.ok) {
+        const data = await res.json();
+
+        if (Array.isArray(data.loans)) {
+          setLoans(prev => {
+            const map = new Map<string, Loan>();
+            prev.forEach(l => { if (l && l.id) map.set(l.id, l); });
+            data.loans.forEach((l: Loan) => { if (l && l.id) map.set(l.id, l); });
+            const merged = Array.from(map.values());
+            try {
+              localStorage.setItem(LOCAL_STORAGE_LOANS_KEY, JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
         }
-      }
 
-      if (loansRes && loansRes.ok) {
-        const json = await loansRes.json();
-        if (Array.isArray(json.loans)) {
-          setLoans(json.loans);
+        if (Array.isArray(data.transactions)) {
+          setTransactions(prev => {
+            const map = new Map<string, Transaction>();
+            prev.forEach(t => { if (t && t.id) map.set(t.id, t); });
+            data.transactions.forEach((t: Transaction) => { if (t && t.id) map.set(t.id, t); });
+            const merged = Array.from(map.values());
+            try {
+              localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
         }
-      }
 
-      if (chatRes && chatRes.ok) {
-        const json = await chatRes.json();
-        if (Array.isArray(json.messages)) {
-          setChatMessages(json.messages);
+        if (Array.isArray(data.vaultGoals)) {
+          setVaultGoals(prev => {
+            const map = new Map<string, VaultGoal>();
+            prev.forEach(g => { if (g && g.id) map.set(g.id, g); });
+            data.vaultGoals.forEach((g: VaultGoal) => { if (g && g.id) map.set(g.id, g); });
+            const merged = Array.from(map.values());
+            try {
+              localStorage.setItem(LOCAL_STORAGE_VAULT_KEY, JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
         }
-      }
 
-      if (vaultRes && vaultRes.ok) {
-        const json = await vaultRes.json();
-        if (Array.isArray(json.goals)) {
-          setVaultGoals(json.goals);
+        if (Array.isArray(data.chatMessages)) {
+          setChatMessages(prev => {
+            const map = new Map<string, ChatMessage>();
+            prev.forEach(m => { if (m && m.id) map.set(m.id, m); });
+            data.chatMessages.forEach((m: ChatMessage) => { if (m && m.id) map.set(m.id, m); });
+            const merged = Array.from(map.values());
+            try {
+              localStorage.setItem(LOCAL_STORAGE_CHAT_KEY, JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
         }
-      }
 
-      if (partnersRes && partnersRes.ok) {
-        const json = await partnersRes.json();
-        if (json.partners) {
-          setPartners(prev => ({ ...prev, ...json.partners }));
+        if (data.partners && typeof data.partners === 'object') {
+          setPartners(prev => {
+            const updated = { ...prev, ...data.partners };
+            try {
+              localStorage.setItem(LOCAL_STORAGE_PARTNERS_KEY, JSON.stringify(updated));
+            } catch (e) {}
+            return updated;
+          });
+        }
+
+        if (isManualTrigger) {
+          setNotification('⚡ Sincronizado com sucesso! Todos os dados de ambos os celulares estão atualizados.');
+          if (soundEnabledRef.current) playSyncChime();
         }
       }
     } catch (e) {
@@ -412,9 +465,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, []);
 
+  const forceSyncNow = useCallback(async () => {
+    await reconcileWithServer(true);
+  }, [reconcileWithServer]);
+
   useEffect(() => {
-    loadInitialData();
-  }, [loadInitialData]);
+    reconcileWithServer(false);
+  }, [reconcileWithServer]);
 
   // 1. Instant Realtime SSE (Server-Sent Events) synchronization across devices
   useEffect(() => {
@@ -508,7 +565,12 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             } else if (payload.eventType === 'LOAN_UPDATE') {
               const { loan, loans: remoteLoans } = payload.data || {};
               if (Array.isArray(remoteLoans)) {
-                setLoans(remoteLoans);
+                setLoans(prev => {
+                  const map = new Map<string, Loan>();
+                  prev.forEach(l => { if (l && l.id) map.set(l.id, l); });
+                  remoteLoans.forEach((l: Loan) => { if (l && l.id) map.set(l.id, l); });
+                  return Array.from(map.values());
+                });
               } else if (loan) {
                 setLoans(prev => {
                   const idx = prev.findIndex(l => l.id === loan.id);
@@ -521,6 +583,46 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 });
               }
               if (soundEnabled) playSyncChime();
+              setNotification('⚡ Empréstimos sincronizados em tempo real!');
+            } else if (payload.eventType === 'RECONCILE_UPDATE') {
+              const { loans: rLoans, transactions: rTx, vaultGoals: rVault, chatMessages: rChat, partners: rPartners } = payload.data || {};
+              if (Array.isArray(rLoans)) {
+                setLoans(prev => {
+                  const map = new Map<string, Loan>();
+                  prev.forEach(l => { if (l && l.id) map.set(l.id, l); });
+                  rLoans.forEach((l: Loan) => { if (l && l.id) map.set(l.id, l); });
+                  return Array.from(map.values());
+                });
+              }
+              if (Array.isArray(rTx)) {
+                setTransactions(prev => {
+                  const map = new Map<string, Transaction>();
+                  prev.forEach(t => { if (t && t.id) map.set(t.id, t); });
+                  rTx.forEach((t: Transaction) => { if (t && t.id) map.set(t.id, t); });
+                  return Array.from(map.values());
+                });
+              }
+              if (Array.isArray(rVault)) {
+                setVaultGoals(prev => {
+                  const map = new Map<string, VaultGoal>();
+                  prev.forEach(g => { if (g && g.id) map.set(g.id, g); });
+                  rVault.forEach((g: VaultGoal) => { if (g && g.id) map.set(g.id, g); });
+                  return Array.from(map.values());
+                });
+              }
+              if (Array.isArray(rChat)) {
+                setChatMessages(prev => {
+                  const map = new Map<string, ChatMessage>();
+                  prev.forEach(m => { if (m && m.id) map.set(m.id, m); });
+                  rChat.forEach((m: ChatMessage) => { if (m && m.id) map.set(m.id, m); });
+                  return Array.from(map.values());
+                });
+              }
+              if (rPartners && typeof rPartners === 'object') {
+                setPartners(prev => ({ ...prev, ...rPartners }));
+              }
+              if (soundEnabled) playSyncChime();
+              setNotification('⚡ Dados sincronizados instantaneamente com o outro aparelho!');
             } else if (payload.eventType === 'LOAN_DELETE') {
               const { id, loans: remoteLoans } = payload.data || {};
               if (Array.isArray(remoteLoans)) {
@@ -998,62 +1100,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Guarantees zero missed transactions, loans, vault goals, chat messages, or partners even with network glitches or Cloud Run instance rotation
   useEffect(() => {
     const syncAllData = async () => {
-      try {
-        const [txRes, loansRes, vaultRes, chatRes, partnersRes] = await Promise.all([
-          fetch('/api/transactions').then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch('/api/loans').then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch('/api/vault').then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch('/api/chat').then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch('/api/partners').then(r => r.ok ? r.json() : null).catch(() => null),
-        ]);
+      // 1. Full bidirectional reconcile with server
+      await reconcileWithServer(false);
 
-        if (txRes && Array.isArray(txRes.transactions)) {
-          setTransactions(prev => {
-            if (txRes.transactions.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(txRes.transactions)) {
-              return txRes.transactions;
-            }
-            return prev;
-          });
-        }
-
-        if (loansRes && Array.isArray(loansRes.loans)) {
-          setLoans(prev => {
-            if (loansRes.loans.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(loansRes.loans)) {
-              return loansRes.loans;
-            }
-            return prev;
-          });
-        }
-
-        if (vaultRes && Array.isArray(vaultRes.goals)) {
-          setVaultGoals(prev => {
-            if (vaultRes.goals.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(vaultRes.goals)) {
-              return vaultRes.goals;
-            }
-            return prev;
-          });
-        }
-
-        if (chatRes && Array.isArray(chatRes.messages)) {
-          setChatMessages(prev => {
-            if (chatRes.messages.length !== prev.length) {
-              return chatRes.messages;
-            }
-            return prev;
-          });
-        }
-
-        if (partnersRes && partnersRes.partners) {
-          setPartners(prev => {
-            if (JSON.stringify(prev) !== JSON.stringify(partnersRes.partners)) {
-              return { ...prev, ...partnersRes.partners };
-            }
-            return prev;
-          });
-        }
-      } catch (e) {}
-
-      // Reconcile Supabase if connected
+      // 2. Reconcile Supabase if connected
       const client = getSupabaseClient();
       if (client) {
         try {
@@ -1064,39 +1114,39 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             fetchSupabaseChatMessages(),
           ]);
 
-          if (!sTx.error && Array.isArray(sTx.data)) {
+          if (!sTx.error && Array.isArray(sTx.data) && sTx.data.length > 0) {
             setTransactions(prev => {
-              if (sTx.data!.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(sTx.data)) {
-                return sTx.data!;
-              }
-              return prev;
+              const map = new Map<string, Transaction>();
+              prev.forEach(t => map.set(t.id, t));
+              sTx.data!.forEach(t => map.set(t.id, t));
+              return Array.from(map.values());
             });
           }
 
-          if (!sLoans.error && Array.isArray(sLoans.data)) {
+          if (!sLoans.error && Array.isArray(sLoans.data) && sLoans.data.length > 0) {
             setLoans(prev => {
-              if (sLoans.data!.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(sLoans.data)) {
-                return sLoans.data!;
-              }
-              return prev;
+              const map = new Map<string, Loan>();
+              prev.forEach(l => map.set(l.id, l));
+              sLoans.data!.forEach(l => map.set(l.id, l));
+              return Array.from(map.values());
             });
           }
 
-          if (!sVault.error && Array.isArray(sVault.data)) {
+          if (!sVault.error && Array.isArray(sVault.data) && sVault.data.length > 0) {
             setVaultGoals(prev => {
-              if (sVault.data!.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(sVault.data)) {
-                return sVault.data!;
-              }
-              return prev;
+              const map = new Map<string, VaultGoal>();
+              prev.forEach(g => map.set(g.id, g));
+              sVault.data!.forEach(g => map.set(g.id, g));
+              return Array.from(map.values());
             });
           }
 
-          if (!sChat.error && Array.isArray(sChat.data)) {
+          if (!sChat.error && Array.isArray(sChat.data) && sChat.data.length > 0) {
             setChatMessages(prev => {
-              if (sChat.data!.length !== prev.length) {
-                return sChat.data!;
-              }
-              return prev;
+              const map = new Map<string, ChatMessage>();
+              prev.forEach(m => map.set(m.id, m));
+              sChat.data!.forEach(m => map.set(m.id, m));
+              return Array.from(map.values());
             });
           }
         } catch (e) {}
@@ -1260,7 +1310,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const refreshTransactions = async () => {
-    await loadInitialData();
+    await reconcileWithServer(false);
     await loadSupabaseData();
   };
 
@@ -1742,6 +1792,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         payLoan,
         sendChatMessage,
         deleteChatMessage,
+        forceSyncNow,
       }}
     >
       {children}
