@@ -17,6 +17,7 @@ import { ChartsView } from './components/ChartsView';
 import { TransactionModal } from './components/TransactionModal';
 import { SupabaseModal } from './components/SupabaseModal';
 import { SettingsModal } from './components/SettingsModal';
+import { CoupleSyncModal } from './components/CoupleSyncModal';
 import { Transaction } from './types/finance';
 import {
   ReceiptText,
@@ -35,6 +36,7 @@ const DashboardContent: React.FC = () => {
   const [transactionToEdit, setTransactionToEdit] = useState<Transaction | null>(null);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isCoupleSyncModalOpen, setIsCoupleSyncModalOpen] = useState(false);
 
   const handleOpenNewTransaction = () => {
     setTransactionToEdit(null);
@@ -58,6 +60,7 @@ const DashboardContent: React.FC = () => {
           onOpenNewTransaction={handleOpenNewTransaction}
           onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
           onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
+          onOpenCoupleSyncModal={() => setIsCoupleSyncModalOpen(true)}
         />
 
         {/* Main Content Area */}
@@ -198,6 +201,11 @@ const DashboardContent: React.FC = () => {
             setIsSettingsModalOpen(false);
             setIsSupabaseModalOpen(true);
           }}
+        />
+
+        <CoupleSyncModal
+          isOpen={isCoupleSyncModalOpen}
+          onClose={() => setIsCoupleSyncModalOpen(false)}
         />
       </div>
     </div>

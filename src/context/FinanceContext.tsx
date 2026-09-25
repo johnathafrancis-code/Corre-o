@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { Transaction, PartnerConfig, TransactionOwner, VaultGoal, VaultDeposit, Loan, LoanPayment, ChatMessage } from '../types/finance';
 import { DEFAULT_PARTNERS, INITIAL_TRANSACTIONS } from '../data/defaultData';
+import { CoupleSyncPackage, parseCoupleDataFromString } from '../utils/syncLink';
 import { 
   getStoredSupabaseConfig, 
   getSupabaseClient, 
@@ -73,6 +74,7 @@ interface FinanceContextType {
   sendChatMessage: (text: string, sender: TransactionOwner) => Promise<boolean>;
   deleteChatMessage: (id: string) => Promise<boolean>;
   forceSyncNow: () => Promise<void>;
+  importCoupleData: (pkg: CoupleSyncPackage) => void;
 }
 
 const LOCAL_STORAGE_TX_KEY = 'financas_casal_transactions';
@@ -464,6 +466,99 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.log('Modo client-only ou offline ativo');
     }
   }, []);
+
+  const importCoupleData = useCallback((pkg: CoupleSyncPackage) => {
+    if (!pkg) return;
+
+    if (Array.isArray(pkg.loans) && pkg.loans.length > 0) {
+      setLoans(prev => {
+        const map = new Map<string, Loan>();
+        prev.forEach(l => { if (l && l.id) map.set(l.id, l); });
+        pkg.loans.forEach((l: Loan) => { if (l && l.id) map.set(l.id, l); });
+        const merged = Array.from(map.values());
+        try {
+          localStorage.setItem(LOCAL_STORAGE_LOANS_KEY, JSON.stringify(merged));
+          localStorage.setItem('financas_loans', JSON.stringify(merged));
+        } catch (e) {}
+        return merged;
+      });
+    }
+
+    if (Array.isArray(pkg.transactions) && pkg.transactions.length > 0) {
+      setTransactions(prev => {
+        const map = new Map<string, Transaction>();
+        prev.forEach(t => { if (t && t.id) map.set(t.id, t); });
+        pkg.transactions.forEach((t: Transaction) => { if (t && t.id) map.set(t.id, t); });
+        const merged = Array.from(map.values());
+        try {
+          localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(merged));
+        } catch (e) {}
+        return merged;
+      });
+    }
+
+    if (Array.isArray(pkg.vaultGoals) && pkg.vaultGoals.length > 0) {
+      setVaultGoals(prev => {
+        const map = new Map<string, VaultGoal>();
+        prev.forEach(g => { if (g && g.id) map.set(g.id, g); });
+        pkg.vaultGoals.forEach((g: VaultGoal) => { if (g && g.id) map.set(g.id, g); });
+        const merged = Array.from(map.values());
+        try {
+          localStorage.setItem(LOCAL_STORAGE_VAULT_KEY, JSON.stringify(merged));
+        } catch (e) {}
+        return merged;
+      });
+    }
+
+    if (pkg.partners && typeof pkg.partners === 'object') {
+      setPartners(prev => {
+        const updated = { ...prev, ...pkg.partners };
+        try {
+          localStorage.setItem(LOCAL_STORAGE_PARTNERS_KEY, JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+    }
+
+    // Persist immediately to backend server so other devices also have it
+    try {
+      fetch('/api/sync/reconcile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-client-id': clientIdRef.current,
+        },
+        body: JSON.stringify({
+          loans: pkg.loans,
+          transactions: pkg.transactions,
+          vaultGoals: pkg.vaultGoals,
+          partners: pkg.partners,
+        }),
+      }).catch(() => {});
+    } catch (e) {}
+
+    const loanCount = (pkg.loans || []).length;
+    setNotification(`⚡ Sincronização concluída com sucesso! ${loanCount} empréstimos carregados.`);
+    if (soundEnabledRef.current) playSyncChime();
+  }, []);
+
+  // Check URL query parameters for instant WhatsApp / Link sync
+  useEffect(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const syncParam = urlParams.get('couple_sync');
+      if (syncParam) {
+        const pkg = parseCoupleDataFromString(syncParam);
+        if (pkg) {
+          importCoupleData(pkg);
+          const cleanUrl = window.location.origin + window.location.pathname;
+          window.history.replaceState({}, document.title, cleanUrl);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [importCoupleData]);
 
   const forceSyncNow = useCallback(async () => {
     await reconcileWithServer(true);
@@ -1793,6 +1888,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         sendChatMessage,
         deleteChatMessage,
         forceSyncNow,
+        importCoupleData,
       }}
     >
       {children}

@@ -17,7 +17,9 @@ import {
   ChevronUp,
   Edit2,
   RefreshCw,
+  Share2,
 } from 'lucide-react';
+import { CoupleSyncModal } from './CoupleSyncModal';
 
 export const LoansView: React.FC = () => {
   const {
@@ -34,6 +36,7 @@ export const LoansView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'pending' | 'paid' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isCoupleSyncOpen, setIsCoupleSyncOpen] = useState(false);
 
   const handleManualSync = async () => {
     setIsSyncing(true);
@@ -289,13 +292,23 @@ export const LoansView: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setIsCoupleSyncOpen(true)}
+              className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:scale-95 text-emerald-800 text-xs font-bold border border-emerald-200/80 shadow-xs transition-all cursor-pointer"
+              title="Sincronizar direto com o celular da esposa (WhatsApp / Link / Código)"
+            >
+              <Share2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Sincronizar Casal</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleManualSync}
               disabled={isSyncing}
               className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-60"
-              title="Sincronizar empréstimos com o outro celular agora"
+              title="Buscar dados do servidor"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : 'text-slate-600'}`} />
-              <span className="hidden xs:inline">{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+              <span className="hidden xs:inline">{isSyncing ? '...' : 'Atualizar'}</span>
             </button>
 
             <button
@@ -417,18 +430,27 @@ export const LoansView: React.FC = () => {
           <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
             <button
               type="button"
+              onClick={() => setIsCoupleSyncOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+            >
+              <Share2 className="w-4 h-4" />
+              <span>Sincronizar com Esposa (WhatsApp / Código)</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleManualSync}
               disabled={isSyncing}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-60"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : 'text-slate-600'}`} />
-              <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar Outro Celular'}</span>
+              <span>{isSyncing ? 'Buscando...' : 'Buscar do Servidor'}</span>
             </button>
 
             <button
               type="button"
               onClick={handleOpenNewLoan}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Cadastrar Empréstimo</span>
@@ -1221,6 +1243,12 @@ export const LoansView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal 4: Sincronização Direta do Casal */}
+      <CoupleSyncModal
+        isOpen={isCoupleSyncOpen}
+        onClose={() => setIsCoupleSyncOpen(false)}
+      />
     </div>
   );
 };

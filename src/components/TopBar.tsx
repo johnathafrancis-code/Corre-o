@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 import { useFinance } from '../context/FinanceContext';
-import { Database, Settings, Volume2, VolumeX, Banknote, RefreshCw } from 'lucide-react';
+import { Database, Settings, Volume2, VolumeX, Banknote, RefreshCw, Share2 } from 'lucide-react';
 
 interface TopBarProps {
   onOpenNewTransaction: () => void;
   onOpenSupabaseModal: () => void;
   onOpenSettingsModal: () => void;
+  onOpenCoupleSyncModal: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
   onOpenNewTransaction,
   onOpenSupabaseModal,
   onOpenSettingsModal,
+  onOpenCoupleSyncModal,
 }) => {
   const {
     partners,
@@ -81,15 +83,25 @@ export const TopBar: React.FC<TopBarProps> = ({
             </span>
           </div>
 
-          {/* Right: Sync + Sound toggle + Settings Gear right next to it */}
+          {/* Right: Couple Direct Sync + Server Sync + Sound toggle + Settings Gear */}
           <div className="flex items-center justify-end gap-1">
+            {/* Direct Couple Transfer / Sync */}
+            <button
+              type="button"
+              onClick={onOpenCoupleSyncModal}
+              className="p-1.5 text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
+              title="Sincronização Direta do Casal (WhatsApp / Código / Link)"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+
             {/* Sync now button */}
             <button
               type="button"
               onClick={handleSyncClick}
               disabled={isSyncing}
               className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-              title="Sincronizar dados entre os celulares agora"
+              title="Sincronizar dados com o servidor agora"
             >
               <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-emerald-600' : ''}`} />
             </button>
