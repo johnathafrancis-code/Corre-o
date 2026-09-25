@@ -116,7 +116,7 @@ const DashboardContent: React.FC = () => {
                         </div>
                         <span
                           className={`text-xs font-bold font-mono shrink-0 tabular-nums ${
-                            tx.type === 'expense' ? 'text-slate-900' : 'text-emerald-700'
+                            tx.type === 'expense' ? 'text-rose-600' : 'text-emerald-700'
                           }`}
                         >
                           {tx.type === 'expense' ? '- ' : '+ '}

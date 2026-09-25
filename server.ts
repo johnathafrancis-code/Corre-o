@@ -29,6 +29,7 @@ const DATA_FILE = path.join(__dirname, 'transactions-data.json');
 const VAULT_FILE = path.join(__dirname, 'vault-data.json');
 const LOANS_FILE = path.join(__dirname, 'loans-data.json');
 const CHAT_FILE = path.join(__dirname, 'chat-data.json');
+const PARTNERS_FILE = path.join(__dirname, 'partners-data.json');
 const SUPABASE_CONFIG_FILE = path.join(__dirname, 'supabase-config.json');
 
 const INITIAL_DATA: TransactionItem[] = [];
@@ -37,6 +38,7 @@ let transactions: TransactionItem[] = [];
 let vaultGoals: any[] = [];
 let loans: any[] = [];
 let chatMessages: any[] = [];
+let partnersData: any = null;
 let supabaseConfig: { url: string; anonKey: string } | null = null;
 
 try {
@@ -99,6 +101,13 @@ try {
   chatMessages = [];
 }
 
+try {
+  if (fs.existsSync(PARTNERS_FILE)) {
+    const raw = fs.readFileSync(PARTNERS_FILE, 'utf-8');
+    partnersData = JSON.parse(raw);
+  }
+} catch (e) {}
+
 function persistData() {
   try {
     fs.writeFileSync(DATA_FILE, JSON.stringify(transactions, null, 2));
@@ -128,6 +137,16 @@ function persistChat() {
     fs.writeFileSync(CHAT_FILE, JSON.stringify(chatMessages, null, 2));
   } catch (err) {
     console.error('Erro ao salvar chat-data.json', err);
+  }
+}
+
+function persistPartners() {
+  try {
+    if (partnersData) {
+      fs.writeFileSync(PARTNERS_FILE, JSON.stringify(partnersData, null, 2));
+    }
+  } catch (err) {
+    console.error('Erro ao salvar partners-data.json', err);
   }
 }
 
@@ -356,7 +375,21 @@ async function startServer() {
     res.json({ success: true, id });
   });
 
-  // 5e. Shared Supabase Config across all devices
+  // 5e. Partners Config
+  app.get('/api/partners', (req, res) => {
+    res.json({ partners: partnersData });
+  });
+
+  app.post('/api/partners', (req, res) => {
+    const config = req.body;
+    if (!config) return res.status(400).json({ error: 'Config inválido.' });
+    partnersData = { ...(partnersData || {}), ...config };
+    persistPartners();
+    broadcast('PARTNERS_UPDATE', { partners: partnersData }, req.headers['x-client-id'] as string);
+    res.json({ success: true, partners: partnersData });
+  });
+
+  // 5f. Shared Supabase Config across all devices
   app.get('/api/supabase-config', (req, res) => {
     if (supabaseConfig && supabaseConfig.url && supabaseConfig.anonKey) {
       res.json({ isConfigured: true, config: supabaseConfig });

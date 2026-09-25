@@ -323,6 +323,19 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.setItem(LOCAL_STORAGE_PARTNERS_KEY, JSON.stringify(updated));
       return updated;
     });
+
+    broadcastToSupabase('PARTNERS_UPDATE', config);
+
+    try {
+      fetch('/api/partners', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-client-id': clientIdRef.current,
+        },
+        body: JSON.stringify(config),
+      }).catch(() => {});
+    } catch (e) {}
   };
 
   const dismissNotification = () => setNotification(null);
@@ -351,12 +364,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       } catch (err) {}
 
-      // 2. Fetch local server data
-      const [txRes, loansRes, chatRes, vaultRes] = await Promise.all([
+      // 2. Fetch local server data (transactions, loans, chat, vault, partners)
+      const [txRes, loansRes, chatRes, vaultRes, partnersRes] = await Promise.all([
         fetch('/api/transactions').catch(() => null),
         fetch('/api/loans').catch(() => null),
         fetch('/api/chat').catch(() => null),
         fetch('/api/vault').catch(() => null),
+        fetch('/api/partners').catch(() => null),
       ]);
 
       if (txRes && txRes.ok) {
@@ -384,6 +398,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const json = await vaultRes.json();
         if (Array.isArray(json.goals)) {
           setVaultGoals(json.goals);
+        }
+      }
+
+      if (partnersRes && partnersRes.ok) {
+        const json = await partnersRes.json();
+        if (json.partners) {
+          setPartners(prev => ({ ...prev, ...json.partners }));
         }
       }
     } catch (e) {
@@ -524,6 +545,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 setChatMessages(remoteMessages);
               } else if (id) {
                 setChatMessages(prev => prev.filter(m => m.id !== id));
+              }
+            } else if (payload.eventType === 'PARTNERS_UPDATE') {
+              const { partners: remotePartners } = payload.data || {};
+              if (remotePartners) {
+                setPartners(prev => ({ ...prev, ...remotePartners }));
               }
             } else if (payload.eventType === 'SUPABASE_CONFIG_UPDATED') {
               const cfg = payload.data?.config;
@@ -723,6 +749,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const id = payload?.id;
         if (id) {
           setTransactions(prev => prev.filter(t => t.id !== id));
+        }
+      })
+      .on('broadcast', { event: 'PARTNERS_UPDATE' }, ({ payload }) => {
+        if (payload) {
+          setPartners(prev => ({ ...prev, ...payload }));
         }
       })
 
@@ -963,18 +994,27 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [supabaseStatus.isConfigured]);
 
-  // Periodic background sync fallback (every 3s when tab is visible or on visibilitychange)
-  // Guarantees zero missed loans, vault goals, or messages even with network glitches or Cloud Run instance rotation
+  // Periodic background sync fallback (every 2 minutes regardless of whether tab is active or in background)
+  // Guarantees zero missed transactions, loans, vault goals, chat messages, or partners even with network glitches or Cloud Run instance rotation
   useEffect(() => {
     const syncAllData = async () => {
-      if (document.hidden) return;
-
       try {
-        const [loansRes, vaultRes, chatRes] = await Promise.all([
+        const [txRes, loansRes, vaultRes, chatRes, partnersRes] = await Promise.all([
+          fetch('/api/transactions').then(r => r.ok ? r.json() : null).catch(() => null),
           fetch('/api/loans').then(r => r.ok ? r.json() : null).catch(() => null),
           fetch('/api/vault').then(r => r.ok ? r.json() : null).catch(() => null),
           fetch('/api/chat').then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch('/api/partners').then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
+
+        if (txRes && Array.isArray(txRes.transactions)) {
+          setTransactions(prev => {
+            if (txRes.transactions.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(txRes.transactions)) {
+              return txRes.transactions;
+            }
+            return prev;
+          });
+        }
 
         if (loansRes && Array.isArray(loansRes.loans)) {
           setLoans(prev => {
@@ -1002,17 +1042,36 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             return prev;
           });
         }
+
+        if (partnersRes && partnersRes.partners) {
+          setPartners(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(partnersRes.partners)) {
+              return { ...prev, ...partnersRes.partners };
+            }
+            return prev;
+          });
+        }
       } catch (e) {}
 
       // Reconcile Supabase if connected
       const client = getSupabaseClient();
       if (client) {
         try {
-          const [sLoans, sVault, sChat] = await Promise.all([
+          const [sTx, sLoans, sVault, sChat] = await Promise.all([
+            fetchSupabaseTransactions(),
             fetchSupabaseLoans(),
             fetchSupabaseVaultGoals(),
             fetchSupabaseChatMessages(),
           ]);
+
+          if (!sTx.error && Array.isArray(sTx.data)) {
+            setTransactions(prev => {
+              if (sTx.data!.length !== prev.length || JSON.stringify(prev) !== JSON.stringify(sTx.data)) {
+                return sTx.data!;
+              }
+              return prev;
+            });
+          }
 
           if (!sLoans.error && Array.isArray(sLoans.data)) {
             setLoans(prev => {
@@ -1044,17 +1103,23 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     };
 
-    const intervalId = setInterval(syncAllData, 3000);
-    const handleVisibility = () => {
-      if (!document.hidden) {
-        syncAllData();
-      }
+    // Run every 2 minutes (120,000 ms) continuously, regardless of tab state
+    const intervalId = setInterval(syncAllData, 120000);
+
+    // Instant sync on focus, page show, and visibility change
+    const handleImmediateSync = () => {
+      syncAllData();
     };
-    document.addEventListener('visibilitychange', handleVisibility);
+
+    document.addEventListener('visibilitychange', handleImmediateSync);
+    window.addEventListener('focus', handleImmediateSync);
+    window.addEventListener('pageshow', handleImmediateSync);
 
     return () => {
       clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', handleVisibility);
+      document.removeEventListener('visibilitychange', handleImmediateSync);
+      window.removeEventListener('focus', handleImmediateSync);
+      window.removeEventListener('pageshow', handleImmediateSync);
     };
   }, []);
 

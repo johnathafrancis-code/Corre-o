@@ -15,6 +15,7 @@ import {
   DollarSign,
   ChevronDown,
   ChevronUp,
+  Edit2,
 } from 'lucide-react';
 
 export const LoansView: React.FC = () => {
@@ -23,6 +24,7 @@ export const LoansView: React.FC = () => {
     partners,
     activeDeviceUser,
     addLoan,
+    updateLoan,
     deleteLoan,
     payLoan,
   } = useFinance();
@@ -32,6 +34,8 @@ export const LoansView: React.FC = () => {
 
   // Modals state
   const [isNewLoanOpen, setIsNewLoanOpen] = useState(false);
+  const [isEditLoanOpen, setIsEditLoanOpen] = useState(false);
+  const [selectedLoanForEdit, setSelectedLoanForEdit] = useState<Loan | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [selectedLoanForPayment, setSelectedLoanForPayment] = useState<Loan | null>(null);
 
@@ -43,6 +47,17 @@ export const LoansView: React.FC = () => {
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Edit Loan Form state
+  const [editLenderName, setEditLenderName] = useState('');
+  const [editBorrower, setEditBorrower] = useState<TransactionOwner>('partner1');
+  const [editAmountStr, setEditAmountStr] = useState('');
+  const [editPaidAmountStr, setEditPaidAmountStr] = useState('');
+  const [editBorrowDate, setEditBorrowDate] = useState(getTodayString());
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editStatus, setEditStatus] = useState<'pending' | 'paid'>('pending');
+  const [editNotes, setEditNotes] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Payment Form state
   const [paymentAmountStr, setPaymentAmountStr] = useState('');
@@ -166,6 +181,71 @@ export const LoansView: React.FC = () => {
 
     setIsPaymentOpen(false);
     setSelectedLoanForPayment(null);
+  };
+
+  const handleOpenEditLoan = (loan: Loan) => {
+    setSelectedLoanForEdit(loan);
+    setEditLenderName(loan.lenderName);
+    setEditBorrower(loan.borrower);
+    setEditAmountStr(loan.amount.toFixed(2).replace('.', ','));
+    setEditPaidAmountStr((loan.paidAmount || 0).toFixed(2).replace('.', ','));
+    setEditBorrowDate(loan.borrowDate || getTodayString());
+    setEditDueDate(loan.dueDate || '');
+    setEditStatus(loan.status);
+    setEditNotes(loan.notes || '');
+    setEditError(null);
+    setIsEditLoanOpen(true);
+  };
+
+  const handleSaveEditedLoan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLoanForEdit) return;
+
+    const cleanLender = editLenderName.trim();
+    if (!cleanLender) {
+      setEditError('Informe com quem você pegou o dinheiro emprestado.');
+      return;
+    }
+
+    const cleanAmount = parseFloat(editAmountStr.replace(/\./g, '').replace(',', '.'));
+    if (isNaN(cleanAmount) || cleanAmount <= 0) {
+      setEditError('Informe um valor total válido maior que zero.');
+      return;
+    }
+
+    const cleanPaid = parseFloat((editPaidAmountStr || '0').replace(/\./g, '').replace(',', '.'));
+    if (isNaN(cleanPaid) || cleanPaid < 0) {
+      setEditError('Informe um valor pago válido.');
+      return;
+    }
+
+    if (cleanPaid > cleanAmount) {
+      setEditError('O valor pago não pode ser maior que o valor total do empréstimo.');
+      return;
+    }
+
+    if (!editDueDate) {
+      setEditError('Informe a data de vencimento / quando vai pagar.');
+      return;
+    }
+
+    const finalStatus = editStatus === 'paid' || cleanPaid >= cleanAmount ? 'paid' : 'pending';
+
+    await updateLoan({
+      ...selectedLoanForEdit,
+      lenderName: cleanLender,
+      borrower: editBorrower,
+      amount: cleanAmount,
+      paidAmount: cleanPaid,
+      borrowDate: editBorrowDate || selectedLoanForEdit.borrowDate,
+      dueDate: editDueDate,
+      status: finalStatus,
+      notes: editNotes.trim() || undefined,
+      updated_at: new Date().toISOString(),
+    });
+
+    setIsEditLoanOpen(false);
+    setSelectedLoanForEdit(null);
   };
 
   const toggleHistory = (loanId: string) => {
@@ -458,6 +538,16 @@ export const LoansView: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditLoan(loan)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+                      title="Editar dados deste empréstimo"
+                    >
+                      <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Editar</span>
+                    </button>
+
                     {loan.status === 'pending' && (
                       <button
                         type="button"
@@ -867,6 +957,227 @@ export const LoansView: React.FC = () => {
                   className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
                 >
                   Confirmar Baixa
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 3: Editar Empréstimo */}
+      {isEditLoanOpen && selectedLoanForEdit && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <Edit2 className="w-4 h-4 stroke-[2.2]" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Editar Empréstimo
+                  </h3>
+                  <p className="text-[10.5px] text-slate-500">
+                    Atualize os valores, prazos ou quem é o responsável
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditLoanOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedLoan} className="p-4 space-y-3.5 overflow-y-auto">
+              {editError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              {/* Com quem pegou */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Com quem você pegou o dinheiro? *
+                </label>
+                <input
+                  type="text"
+                  value={editLenderName}
+                  onChange={(e) => setEditLenderName(e.target.value)}
+                  placeholder="Ex: Banco Nubank, Mãe, Carlos, Sogro..."
+                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-600 shadow-xs"
+                />
+              </div>
+
+              {/* Quem pegou */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Quem é o responsável? *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditBorrower('partner1')}
+                    className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      editBorrower === 'partner1'
+                        ? 'bg-blue-50 border-blue-600 text-blue-800 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    {partners.partner1Name}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditBorrower('partner2')}
+                    className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      editBorrower === 'partner2'
+                        ? 'bg-blue-50 border-blue-600 text-blue-800 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    {partners.partner2Name}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditBorrower('shared')}
+                    className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      editBorrower === 'shared'
+                        ? 'bg-blue-50 border-blue-600 text-blue-800 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    Casal (Ambos)
+                  </button>
+                </div>
+              </div>
+
+              {/* Status do Empréstimo */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Status da Dívida
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditStatus('pending')}
+                    className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      editStatus === 'pending'
+                        ? 'bg-amber-50 border-amber-500 text-amber-800 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    Em Aberto (Ativo)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditStatus('paid')}
+                    className={`p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      editStatus === 'paid'
+                        ? 'bg-emerald-50 border-emerald-600 text-emerald-800 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    Quitado (Pago)
+                  </button>
+                </div>
+              </div>
+
+              {/* Valores: Total e Já Pago */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    Valor Total (R$) *
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={editAmountStr}
+                    onChange={(e) => setEditAmountStr(e.target.value)}
+                    placeholder="0,00"
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold font-mono text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 shadow-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    Já Pago / Amortizado (R$)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={editPaidAmountStr}
+                    onChange={(e) => setEditPaidAmountStr(e.target.value)}
+                    placeholder="0,00"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold font-mono text-emerald-700 focus:bg-white focus:outline-none focus:border-blue-600 shadow-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Datas: Quando pegou & Quando vai pagar */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    Data em que pegou
+                  </label>
+                  <input
+                    type="date"
+                    value={editBorrowDate}
+                    onChange={(e) => setEditBorrowDate(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 shadow-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
+                    Quando vai pagar? *
+                  </label>
+                  <input
+                    type="date"
+                    value={editDueDate}
+                    onChange={(e) => setEditDueDate(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 shadow-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Observações */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1">
+                  Observações / Chave Pix de Devolução (opcional)
+                </label>
+                <textarea
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Ex: Pagar no 5º dia útil; Chave pix da pessoa..."
+                  rows={2}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-600 shadow-xs"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditLoanOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+                >
+                  Salvar Alterações
                 </button>
               </div>
             </form>

@@ -343,7 +343,7 @@ export const TransactionList: React.FC<TransactionListProps> = ({
                   <div className="text-right shrink-0">
                     <div
                       className={`text-sm font-bold font-mono tabular-nums ${
-                        isExpense ? 'text-slate-900' : 'text-emerald-700'
+                        isExpense ? 'text-rose-600' : 'text-emerald-700'
                       }`}
                     >
                       {isExpense ? '- ' : '+ '}
