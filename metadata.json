@@ -1,0 +1,6 @@
+{
+  "name": "Finanças a Dois - Gestão Financeira Casal",
+  "description": "Painel financeiro em tempo real para casal com controle compartilhado e individual de receitas e despesas sincronizado via Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
