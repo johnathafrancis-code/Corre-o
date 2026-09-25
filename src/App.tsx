@@ -8,12 +8,9 @@ import { FinanceProvider, useFinance } from './context/FinanceContext';
 import { TopBar } from './components/TopBar';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OverviewMetrics } from './components/OverviewMetrics';
-import { LoanSummaryCard } from './components/LoanSummaryCard';
 import { TransactionList } from './components/TransactionList';
-import { LoansView } from './components/LoansView';
 import { VaultView } from './components/VaultView';
 import { ChatView } from './components/ChatView';
-import { ChartsView } from './components/ChartsView';
 import { TransactionModal } from './components/TransactionModal';
 import { SupabaseModal } from './components/SupabaseModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -31,7 +28,7 @@ const DashboardContent: React.FC = () => {
     partners,
   } = useFinance();
 
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'transactions' | 'charts' | 'loans' | 'vault' | 'chat'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'transactions' | 'vault' | 'chat'>('dashboard');
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [transactionToEdit, setTransactionToEdit] = useState<Transaction | null>(null);
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
@@ -70,11 +67,6 @@ const DashboardContent: React.FC = () => {
             <div className="space-y-3.5 animate-in fade-in duration-150">
               {/* Overview Metrics (Month scroller + Balance Card + Partner cards) */}
               <OverviewMetrics />
-
-              {/* Dinheiro Emprestado (Substitui Divisão & Balanço) */}
-              <LoanSummaryCard
-                onViewAll={() => setCurrentTab('loans')}
-              />
 
               {/* Recent Transactions Preview */}
               <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs space-y-3">
@@ -143,28 +135,14 @@ const DashboardContent: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 3: GRÁFICOS & ANÁLISES */}
-          {currentTab === 'charts' && (
-            <div className="space-y-3.5 animate-in fade-in duration-150">
-              <ChartsView />
-            </div>
-          )}
-
-          {/* TAB 4: EMPRESTADO */}
-          {currentTab === 'loans' && (
-            <div className="space-y-3.5 animate-in fade-in duration-150">
-              <LoansView />
-            </div>
-          )}
-
-          {/* TAB 4: COFRE (CAIXINHAS & METAS) */}
+          {/* TAB 3: COFRE (CAIXINHAS & METAS) */}
           {currentTab === 'vault' && (
             <div className="space-y-3.5 animate-in fade-in duration-150">
               <VaultView />
             </div>
           )}
 
-          {/* TAB 5: CHAT / ANOTAÇÕES DO CASAL (ESTILO WHATSAPP) */}
+          {/* TAB 4: CHAT / ANOTAÇÕES DO CASAL (ESTILO WHATSAPP) */}
           {currentTab === 'chat' && (
             <div className="animate-in fade-in duration-150">
               <ChatView />
